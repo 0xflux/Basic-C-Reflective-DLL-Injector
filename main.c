@@ -31,35 +31,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "dll_injector.h"
-
-/**
- * loads a DLL into memory from an embedded resource
- */
-LPVOID load_dll_from_resource(const char *dll_path, int resourceID) {
-    HMODULE hModule         = GetModuleHandle(NULL);
-    HGLOBAL hMemory         = NULL;
-    DWORD dllSize           = 0;
-    LPVOID local_dll_base   = NULL;
-
-    HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(resourceID), "DLL");
-
-    // Load the DLL resource
-    hMemory = LoadResource(hModule, hRes);
-    if (hMemory == NULL) {
-        printf("[-] Loading failed.\n");
-        return NULL;
-    }
-
-    local_dll_base = LockResource(hMemory);
-    dllSize = SizeofResource(hModule, hRes);
-
-    if (local_dll_base == NULL || dllSize == 0) {
-        printf("[-] Locking failed or size is 0.\n");
-        return NULL;
-    }
-
-    return local_dll_base;
-}
+#include "dll_byte_array.h"
 
 // finds and returns a handle to a process given its name
 HANDLE find_process_and_get_handle(char *process_name) {
@@ -234,7 +206,7 @@ int main(int argc, char **argv) {
     char *dll_path                  = argv[2];
 
     HANDLE target_process_handle    = INVALID_HANDLE_VALUE;
-    LPVOID local_dll_base           = NULL;
+    LPVOID local_dll_base           = (LPVOID)dll_data; // DLL data
     LPVOID target_base_addr         = NULL;
     LPVOID injected_memory_base     = NULL;
     PIMAGE_DOS_HEADER dos_header    = NULL;
@@ -242,16 +214,6 @@ int main(int argc, char **argv) {
     PIMAGE_NT_HEADERS nt            = NULL;
     DWORD func_size                 = 0;
     DLL_INFO dll;
-
-    /***********************
-     * Open DLL either from disk or from the exe itself
-     * Check for validity and comatability  with x64
-     * *********************/
-    local_dll_base = load_dll_from_resource("c_new.dll", 3481);
-    if (local_dll_base == NULL) {
-        printf("[-] Invalid file.\n");
-        return EXIT_FAILURE;
-    }
 
     dos_header = (PIMAGE_DOS_HEADER)local_dll_base;
 

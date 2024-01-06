@@ -6,3 +6,4 @@
 new_dll.c
 resources_blob.rc
 resources.rc
+dll_byte_array.h

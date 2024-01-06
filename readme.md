@@ -2,7 +2,7 @@
 
 This is a simple C fully reflective DLL injector, designed to inject a DLL packed into the executable. I have open sourced the very basic injector here, but in my [private repo](https://github.com/0xflux/Reflective-DLL-Injectors) there are a great many more features, including build pipelines & automation, fetching resources from URLs and advanced packing / encryption. 
 
-Releasing this one open source as a basic POC, to be rewritten in Rust hopefully soon if have time.
+Releasing this one open source as a basic POC, to be rewritten in Rust hopefully soon if have time. This is not designed to work 'out the box', an important config file is held back to **prevent misuse**. If you'd love to chat about it, or to use the POC yourself (LEGALLY) for learning or research purposes, reach out to me on Twitter: [0xfluxsec](https://twitter.com/0xfluxsec).
 
 ## LEGAL NOTICE
 
