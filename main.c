@@ -213,7 +213,7 @@ int main(int argc, char **argv) {
     PIMAGE_SECTION_HEADER section   = NULL;
     PIMAGE_NT_HEADERS nt            = NULL;
     DWORD func_size                 = 0;
-    DLL_INFO dll;
+    DLL_INFO dll_info;
 
     dos_header = (PIMAGE_DOS_HEADER)local_dll_base;
 
@@ -243,10 +243,10 @@ int main(int argc, char **argv) {
     /***********************
      * Allocate memory in target process
      * *********************/
-    dll.base_relocation_required = FALSE;
+    dll_info.base_relocation_required = FALSE;
 
     if ((target_base_addr = VirtualAllocEx(target_process_handle, (LPVOID)nt->OptionalHeader.ImageBase, nt->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)) == NULL) {
-        dll.base_relocation_required = TRUE;
+        dll_info.base_relocation_required = TRUE;
 
         if ((target_base_addr = VirtualAllocEx(target_process_handle, NULL, nt->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)) == NULL) {
             //printf("[-] Failed to allocate memory into target process.\n");
@@ -272,26 +272,26 @@ int main(int argc, char **argv) {
     }
 
     func_size = (DWORD)((ULONGLONG)main-(ULONGLONG)realign_pe);
-    dll.base = target_base_addr;
-    dll.get_process_addr = GetProcAddress;
-    dll.load_library_a_addr = LoadLibraryA;
+    dll_info.base = target_base_addr;
+    dll_info.get_process_addr = GetProcAddress;
+    dll_info.load_library_a_addr = LoadLibraryA;
 
     // Allocate memory in the virtual address space of the target process.
-    // The size of the memory allocated is func_size + sizeof(dll).
-    injected_memory_base = VirtualAllocEx(target_process_handle, NULL, func_size + sizeof(dll), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    // The size of the memory allocated is func_size + sizeof(dll_info).
+    injected_memory_base = VirtualAllocEx(target_process_handle, NULL, func_size + sizeof(dll_info), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if(injected_memory_base == NULL) {
         printf("[-] Failed to allocate memory for PE.\n");
         VirtualFreeEx(target_process_handle, target_base_addr, 0, MEM_RELEASE);
         return EXIT_FAILURE;
     }
 
-    // write the dll structure to the beginning of the allocated memory (injected_memory_base)
-    WriteProcessMemory(target_process_handle, injected_memory_base, &dll, sizeof(dll), NULL);
+    // write the dll_info structure to the beginning of the allocated memory (injected_memory_base)
+    WriteProcessMemory(target_process_handle, injected_memory_base, &dll_info, sizeof(dll_info), NULL);
     // writes a code segment (realign_pe) into the memory. 
-    WriteProcessMemory(target_process_handle, injected_memory_base + sizeof(dll), realign_pe, func_size, NULL);
+    WriteProcessMemory(target_process_handle, injected_memory_base + sizeof(dll_info), realign_pe, func_size, NULL);
 
     // create a thread in the target process, the thread starts executing at the memory location where realign_pe was written 
-    if (!CreateRemoteThread(target_process_handle, NULL, 0, (LPTHREAD_START_ROUTINE)(injected_memory_base + sizeof(dll)), injected_memory_base, 0, NULL)) {
+    if (!CreateRemoteThread(target_process_handle, NULL, 0, (LPTHREAD_START_ROUTINE)(injected_memory_base + sizeof(dll_info)), injected_memory_base, 0, NULL)) {
         printf("[-] Failed to complete.\n");
         return EXIT_FAILURE;
     }
