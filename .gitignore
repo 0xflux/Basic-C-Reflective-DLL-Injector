@@ -1,0 +1,8 @@
+*.o
+*.dll
+*.res
+*.exe
+/.vscode
+new_dll.c
+resources_blob.rc
+resources.rc
