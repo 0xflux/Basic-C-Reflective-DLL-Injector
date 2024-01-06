@@ -4,6 +4,11 @@ This is a simple C fully reflective DLL injector, designed to inject a DLL packe
 
 Releasing this one open source as a basic POC, to be rewritten in Rust hopefully soon if have time. This is not designed to work 'out the box', an important config file is held back to **prevent misuse**. If you'd love to chat about it, or to use the POC yourself (LEGALLY) for learning or research purposes, reach out to me on Twitter: [0xfluxsec](https://twitter.com/0xfluxsec).
 
+In this project we have a custom bootstrap loader, as evidenced here copying the sections of our implant DLL into a target process memory:
+
+![image](https://github.com/0xflux/Basic-C-Reflective-DLL-Injector/assets/49762827/8d3dc642-f50a-4be6-8c4d-777d203855b4)
+
+
 ## LEGAL NOTICE
 
 This project, including all associated source code and documentation, is developed and shared solely for educational, research, and defensive purposes in the field of cybersecurity. It is intended to be used exclusively by cybersecurity professionals, researchers, and educators to enhance understanding, develop defensive strategies, and improve security postures.
