@@ -7,128 +7,80 @@
 void start_of_injectable_code() {
 }
 
-// Adjusts and realigns the PE file within the target process memory
-void realign_pe(LDLL_INFO dll_info) {
-    PIMAGE_DOS_HEADER dos_header            = NULL;
-    PIMAGE_NT_HEADERS nt                    = NULL;
-    LPVOID base                             = NULL;
-    PIMAGE_IMPORT_DESCRIPTOR import         = NULL;
-    PIMAGE_THUNK_DATA original_thunk        = NULL; 
-    PIMAGE_THUNK_DATA first_thunk           = NULL;
-    PIMAGE_BASE_RELOCATION relocation_block = NULL;
-    PIMAGE_TLS_DIRECTORY tls                = NULL;
-    PIMAGE_TLS_CALLBACK *callback           = NULL;
-
-    // function pointers for dynamic loading
-    BOOL (*dll_entry)(LPVOID, DWORD, LPVOID);
-    LPVOID (*load_dll)(LPSTR);
-    LPVOID (*get_proc)(LPVOID, LPSTR);
-
-    // set base addresses and function pointers from DLL_INFO struct 
-    base = dll_info->base; // base address of the DLL in the target process
-    load_dll = dll_info->load_library_a_addr; // pointer to LoadLibraryA in the target process
-    get_proc = dll_info->get_process_addr; // pointer to GetProcAddress in the target process
-
-    // access the PE headers of the DLL in the target process
-    dos_header = (PIMAGE_DOS_HEADER)base;
-    nt = (PIMAGE_NT_HEADERS)(base + dos_header->e_lfanew);
-
-    // address of the DLL's entry point
-    dll_entry = base + nt->OptionalHeader.AddressOfEntryPoint;
-
-    // check if base relocation is required (happens if the DLL is loaded at a different address than its preferred one)
-    if (!dll_info->base_relocation_required) {
-        goto load_import;
-    }
-
-// Base Relocation: Adjust addresses in the relocation table
-base_relocation:
-        // check if relocation table exists
-        if (nt->OptionalHeader.DataDirectory[5].VirtualAddress == 0) { 
-            // no relocation table found
-            goto load_import;
-        }
-
-        ULONGLONG *relocation_address = NULL;
-
-        // calculate the difference between the preferred and actual base addresses
-        ULONGLONG base_addr_delta = (ULONGLONG)base - nt->OptionalHeader.ImageBase;
-        relocation_block = (PIMAGE_BASE_RELOCATION)(base + nt->OptionalHeader.DataDirectory[5].VirtualAddress);
-        
-        // iterate over the relocation table and adjust addresses
+void perform_base_relocation(LDLL_INFO dll_info, PIMAGE_NT_HEADERS nt) {
+    if (nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size != 0) {
+        PIMAGE_BASE_RELOCATION relocation_block = (PIMAGE_BASE_RELOCATION)((LPBYTE)dll_info->base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
+        ULONGLONG delta = (ULONGLONG)(dll_info->base - nt->OptionalHeader.ImageBase);
         while (relocation_block->VirtualAddress) {
-            LPVOID relocation_target = base + relocation_block->VirtualAddress;
-            int nEntry = (relocation_block->SizeOfBlock - sizeof(PIMAGE_BASE_RELOCATION)) / 2;
-            PWORD data = (PWORD)((LPVOID)relocation_block + sizeof(PIMAGE_BASE_RELOCATION));
-            
-            int i;
-            for (i = 0; i < nEntry; i++, data++) {
-                if ((*data) >> 12 == 10) { // type 10 indicates a 64-bit address
-                    relocation_address = (PULONGLONG)(relocation_target + ((*data) &0xfff)); // address to be relocated
-                    *relocation_address += base_addr_delta; // do the relocation
+            if (relocation_block->SizeOfBlock >= sizeof(IMAGE_BASE_RELOCATION)) {
+                int count = (relocation_block->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
+                PWORD list = (PWORD)(relocation_block + 1);
+                for (int i = 0; i < count; i++) {
+                    if (list[i] >> 12 == IMAGE_REL_BASED_DIR64) {
+                        PULONGLONG ptr = (PULONGLONG)((LPBYTE)dll_info->base + (relocation_block->VirtualAddress + (list[i] & 0xFFF)));
+                        *ptr += delta;
+                    }
                 }
             }
-
-            relocation_block = (PIMAGE_BASE_RELOCATION)((LPVOID)relocation_block + relocation_block->SizeOfBlock);
-
+            relocation_block = (PIMAGE_BASE_RELOCATION)((LPBYTE)relocation_block + relocation_block->SizeOfBlock);
         }
-
-// Load imports: Adjust pointers to imported functions
-load_import:
-        // check if import table exists
-        if (nt->OptionalHeader.DataDirectory[1].VirtualAddress == 0) {
-            goto tls_callback;
-        }
-
-        // iterate over the import table and resolve addresses
-        import = (PIMAGE_IMPORT_DESCRIPTOR)(base + nt->OptionalHeader.DataDirectory[1].VirtualAddress);
-        while (import->Name) {
-            LPVOID dll = (*load_dll)(base + import->Name);
-            original_thunk = (PIMAGE_THUNK_DATA)(base + import->OriginalFirstThunk);
-            first_thunk = (PIMAGE_THUNK_DATA)(base + import->FirstThunk);
-
-            if (!import->OriginalFirstThunk) {
-                original_thunk = first_thunk;
-            }
-
-            while(original_thunk->u1.AddressOfData) {
-                if (original_thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
-                    // import by ordinal
-                    *(ULONGLONG *)first_thunk = (ULONGLONG)(*get_proc)(dll, (LPSTR)IMAGE_ORDINAL(original_thunk->u1.Ordinal));
-                } else {
-                    // import by name
-                    PIMAGE_IMPORT_BY_NAME fnm = (PIMAGE_IMPORT_BY_NAME)(base + original_thunk->u1.AddressOfData);
-                    *(PULONGLONG)first_thunk = (ULONGLONG)(*get_proc)(dll, fnm->Name);
-                }
-                original_thunk++;
-                first_thunk++;
-            }
-            import++;
-        }
-
-// TLS Callbacks: Call TLS (Thread Local Storage) callbacks if any
-tls_callback:
-        if(nt->OptionalHeader.DataDirectory[9].VirtualAddress == 0) {
-            goto execute_entry_point;
-        }
-
-        tls = (PIMAGE_TLS_DIRECTORY)(base + nt->OptionalHeader.DataDirectory[9].VirtualAddress);
-
-        if (tls->AddressOfCallBacks == 0) {
-            goto execute_entry_point;
-        }
-
-        callback = (PIMAGE_TLS_CALLBACK *)(tls->AddressOfCallBacks);
-        while(*callback) {
-            (*callback)(base, DLL_PROCESS_ATTACH, NULL); // call the TLS callback
-            callback++;
-        }
-
-// Execute Entry Point: Call the DLL's entry
-execute_entry_point:
-        (*dll_entry)(base, DLL_PROCESS_ATTACH, NULL);
+    }
 }
 
+void load_imports(LDLL_INFO dll_info, PIMAGE_NT_HEADERS nt) {
+    if (nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size != 0) {
+        PIMAGE_IMPORT_DESCRIPTOR import_desc = (PIMAGE_IMPORT_DESCRIPTOR)((LPBYTE)dll_info->base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+        while (import_desc->Name != 0) {
+            LPCSTR module_name = (LPCSTR)((LPBYTE)dll_info->base + import_desc->Name);
+            HMODULE module = (*dll_info->load_library_a_addr)(module_name);
+            PIMAGE_THUNK_DATA thunk = (PIMAGE_THUNK_DATA)((LPBYTE)dll_info->base + import_desc->FirstThunk);
+            while (thunk->u1.AddressOfData != 0) {
+                LPBYTE func_name = (LPBYTE)dll_info->base + thunk->u1.AddressOfData + 2;
+                FARPROC func = (*dll_info->get_process_addr)(module, (LPCSTR)func_name);
+                *(FARPROC *)&thunk->u1.Function = func;
+                ++thunk;
+            }
+            ++import_desc;
+        }
+    }
+}
+
+void call_tls_callbacks(LDLL_INFO dll_info, PIMAGE_NT_HEADERS nt) {
+    if (nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size != 0) {
+        PIMAGE_TLS_DIRECTORY tls_dir = (PIMAGE_TLS_DIRECTORY)((LPBYTE)dll_info->base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
+        PIMAGE_TLS_CALLBACK *callback = (PIMAGE_TLS_CALLBACK *)tls_dir->AddressOfCallBacks;
+        if (callback) {
+            while (*callback) {
+                (*callback)(dll_info->base, DLL_PROCESS_ATTACH, NULL);
+                ++callback;
+            }
+        }
+    }
+}
+
+void execute_entry_point(LDLL_INFO dll_info, PIMAGE_NT_HEADERS nt) {
+    typedef BOOL (WINAPI *DLL_MAIN)(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved);
+
+    if (nt->OptionalHeader.AddressOfEntryPoint != 0) {
+        DLL_MAIN entry_point = (DLL_MAIN)((LPBYTE)dll_info->base + nt->OptionalHeader.AddressOfEntryPoint);
+        entry_point(dll_info->base, DLL_PROCESS_ATTACH, NULL);
+    }
+}
+
+void realign_pe(LDLL_INFO dll_info) {
+    PIMAGE_DOS_HEADER dos_header = (PIMAGE_DOS_HEADER)dll_info->base;
+    PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((LPBYTE)dll_info->base + dos_header->e_lfanew);
+    
+    if (dll_info->base_relocation_required) {
+        perform_base_relocation(dll_info, nt);
+    }
+    
+    load_imports(dll_info, nt);
+    
+    call_tls_callbacks(dll_info, nt);
+    
+    execute_entry_point(dll_info, nt);
+}
 
 void end_of_injectable_code() {
 }
