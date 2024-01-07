@@ -19,6 +19,11 @@ typedef struct _DLL_INFO {
 LPVOID load_dll_from_resource(const char *dll_path, int resourceID);
 LPVOID read_dll_from_file(char *FileName);
 HANDLE find_process_and_get_handle(char *process_name);
-void realign_pe(LDLL_INFO pe);
+int launch_reflective_processes(char *process_name);
+
+// to allow DLL builds
+#ifdef BUILD_DLL
+__declspec(dllexport) void runMain();
+#endif
 
 #endif // DLL_INJECTOR_H

