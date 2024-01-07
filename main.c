@@ -48,7 +48,6 @@ __declspec(dllexport) void runMain() {
 
 #endif
 
-
 // entry for when building as an exe
 // gcc main.c bootstrapper.c -o a.exe
 int main(int argc, char **argv) {
